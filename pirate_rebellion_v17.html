@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pirate Rebellion — King of the Caribbean</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" crossorigin></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rye&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0d1b1e;
+    --sea-deep:#0a1f26;
+    --sea:#123640;
+    --sea-light:#1c4a56;
+    --parchment:#e9dcc0;
+    --parchment-dim:#cbb98f;
+    --brass:#d8a94a;
+    --brass-bright:#f0c667;
+    --rust:#b5502e;
+    --emerald:#3ea16b;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ background:var(--sea-deep); }
+  body{
+    font-family:'Inter',sans-serif;
+    color:var(--parchment);
+    margin:0;
+    background:
+      radial-gradient(ellipse at 20% -10%, rgba(28,74,86,0.55), transparent 55%),
+      radial-gradient(ellipse at 90% 110%, rgba(181,80,46,0.12), transparent 50%),
+      var(--sea-deep);
+    min-height:100vh;
+  }
+  .headline{ font-family:'Rye', serif; letter-spacing:0.5px; }
+  .panel{
+    background:linear-gradient(180deg, rgba(233,220,192,0.06), rgba(233,220,192,0.02));
+    border:1px solid rgba(216,169,74,0.25);
+    border-radius:10px;
+  }
+  .stat-chip{
+    background:rgba(10,31,38,0.55);
+    border:1px solid rgba(216,169,74,0.18);
+    border-radius:8px;
+  }
+  .btn-brass{
+    background:linear-gradient(180deg, var(--brass-bright), var(--brass));
+    color:#241304;
+    font-weight:700;
+    border-radius:8px;
+    transition:filter .15s ease, transform .05s ease;
+  }
+  .btn-brass:hover:not(:disabled){ filter:brightness(1.08); }
+  .btn-brass:active:not(:disabled){ transform:translateY(1px); }
+  .btn-brass:disabled{ opacity:0.35; cursor:not-allowed; }
+  .btn-rust{
+    background:linear-gradient(180deg, #c96444, var(--rust));
+    color:#fff0e6; font-weight:700; border-radius:8px;
+    transition:filter .15s ease, transform .05s ease;
+  }
+  .btn-rust:hover:not(:disabled){ filter:brightness(1.1); }
+  .btn-rust:active:not(:disabled){ transform:translateY(1px); }
+  .btn-rust:disabled{ opacity:0.35; cursor:not-allowed; }
+  .btn-ghost{
+    background:transparent; border:1px solid rgba(233,220,192,0.35);
+    color:var(--parchment); border-radius:8px; font-weight:600;
+    transition:background .15s ease;
+  }
+  .btn-ghost:hover:not(:disabled){ background:rgba(233,220,192,0.08); }
+  .btn-ghost:disabled{ opacity:0.35; cursor:not-allowed; }
+  .die{
+    width:52px; height:52px; border-radius:9px;
+    background:linear-gradient(180deg,#f5ecd8,#d8c69c);
+    color:#241304; display:flex; align-items:center; justify-content:center;
+    font-weight:800; font-size:22px; box-shadow:inset 0 -3px 0 rgba(0,0,0,0.15);
+  }
+  .round-dot{ width:11px; height:11px; border-radius:50%; border:1px solid rgba(233,220,192,0.4); }
+  .wave-dot{ width:10px; height:10px; border-radius:50%; border:1px solid rgba(233,220,192,0.4); display:inline-block; }
+  .scanline-log{
+    background:rgba(10,31,38,0.65); border:1px solid rgba(216,169,74,0.15);
+    border-radius:8px; font-size:13px; line-height:1.5;
+  }
+  ::-webkit-scrollbar{ width:8px; }
+  ::-webkit-scrollbar-thumb{ background:rgba(216,169,74,0.35); border-radius:4px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useRef, useEffect } = React;
+
+/* ---------- Combat dice tiers ----------
+   A single d6 whose faces are biased by ship/fort strength.
+   Tier 6 ("Man-o'-War") is a rare, near-unbeatable elite tier —
+   kept in the table now so it's ready once you add a way to build one. */
+const DICE_FACES = {
+  1: [1, 1, 1, 1, 1, 1],
+  2: [1, 1, 1, 2, 2, 2],
+  3: [1, 1, 2, 2, 3, 3],
+  4: [2, 2, 3, 3, 4, 4],
+  5: [3, 3, 4, 4, 5, 5],
+  6: [5, 6, 6, 6, 6, 6],
+};
+const rollDie = (strength) => {
+  const s = Math.min(Math.max(strength, 1), 6);
+  return DICE_FACES[s][Math.floor(Math.random() * 6)];
+};
+
+/* Shipyard catalog — Gold + Stores cost to build each hull.
+   Only one of each hull class may be in the fleet at a time. */
+const SHIP_TYPES = {
+  Sloop:      { strength: 3, cost: { gold: 250, stores: 120 } },
+  Brigantine: { strength: 4, cost: { gold: 450, stores: 250 } },
+  Galleon:    { strength: 5, cost: { gold: 750, stores: 430 } },
+};
+
+/* Kingston is defended by three escalating waves — clearing all three wins the game.
+   Progress is remembered per-city, so a loss doesn't undo waves already cleared. */
+const KINGSTON_WAVES = [
+  { label: "Sloop",      strength: 3, rewardGold: 150, rewardStores: 30 },
+  { label: "Brigantine", strength: 4, rewardGold: 200, rewardStores: 50 },
+  { label: "Galleon",    strength: 5, rewardGold: 300, rewardStores: 80 },
+];
+
+/* British attacks land on Nassau every 3 turns, starting turn 1 (1, 4, 7, 10...).
+   Each attack is tougher than the last, capping out at strength 5. */
+function isAttackTurn(turn) { return (turn - 1) % 3 === 0; }
+function attackStrengthForTurn(turn) {
+  const attackNumber = Math.floor((turn - 1) / 3) + 1;
+  return Math.min(attackNumber, 5);
+}
+
+const initialGameState = {
+  turn: 1,
+  resources: { gold: 200, rum: 10, stores: 200 },
+  happiness: 30,
+  lastAttackTurn: 0,
+  defeat: false,
+  fleet: [
+    { id: "starting-sloop", type: "Sloop", strength: 3, repairTurnsLeft: 0, cargoTypes: ["stores", "rum"] },
+  ],
+  cities: {
+    nassau: { name: "Nassau", type: "home", controller: "player" },
+    havana: { name: "Havana", type: "trade", controller: "neutral" },
+    kingston: { name: "Kingston", type: "military", controller: "british", waveIndex: 0 },
+  },
+  buildings: [
+    { id: "tavern-1", type: "Tavern", level: 1, rumConsumption: 5, happinessOutput: 10 },
+    { id: "distillery-1", type: "Rum Distillery", level: 1, rumOutput: 10 },
+  ],
+  victory: false,
+  log: ["Turn 1: The rebellion begins. Nassau is yours — and the British already know it."],
+};
+
+function upgradeCost(building) {
+  const base = 150 * building.level;
+  return building.type === "Tavern" ? base + 50 : base;
+}
+
+function clamp(n, min, max) { return Math.min(Math.max(n, min), max); }
+
+/* Morale's "threshold" scales with fleet size, not headcount — a bigger fleet means more
+   mouths to keep happy, so growing your navy raises the bar the Tavern has to clear. */
+function happinessThreshold(fleetSize) {
+  return 20 + Math.max(0, fleetSize - 1) * 10;
+}
+
+function GameApp() {
+  const [gameState, setGameState] = useState(initialGameState);
+  const [combat, setCombat] = useState(null); // null | combat object
+  const [selectedShipId, setSelectedShipId] = useState(initialGameState.fleet[0].id);
+  const fileInputRef = useRef(null);
+
+  // The ship currently selected as flagship (for starting a new raid) — no silent fallback,
+  // so the player always knows exactly which ship they're committing.
+  const flagship = gameState.fleet.find(s => s.id === selectedShipId) || null;
+
+  // The ship actually locked into the current battle, if one is open.
+  const combatShip = combat ? gameState.fleet.find(s => s.id === combat.shipId) || null : null;
+
+  const threshold = happinessThreshold(gameState.fleet.length);
+  const moraleRatio = clamp(gameState.happiness / threshold, 0, 2);
+  const isLowMorale = moraleRatio < 1.0;   // -1 combat strength
+  const isCrisis = moraleRatio < 0.5;      // also halves Rum production
+
+  const combatEffectiveStrength = combatShip
+    ? Math.max(1, combatShip.strength - (isLowMorale ? 1 : 0) - (combatShip.repairTurnsLeft > 0 ? 1 : 0))
+    : 0;
+
+  const hasShipType = (typeName) => gameState.fleet.some(s => s.type === typeName);
+
+  const pushLog = (state, entry) => ({ ...state, log: [entry, ...state.log].slice(0, 30) });
+
+  // ---------- British attacks on Nassau (turn 1, 4, 7, ... escalating to strength 5) ----------
+  useEffect(() => {
+    if (gameState.victory || gameState.defeat || combat) return;
+    if (!isAttackTurn(gameState.turn) || gameState.lastAttackTurn === gameState.turn) return;
+
+    const strength = attackStrengthForTurn(gameState.turn);
+
+    if (gameState.fleet.length === 0) {
+      setGameState(prev => pushLog(
+        { ...prev, lastAttackTurn: prev.turn, defeat: true },
+        `Turn ${prev.turn}: a British war-fleet (Str ${strength}) descends on Nassau. With no ships left to defend her, the rebellion is crushed.`
+      ));
+      return;
+    }
+
+    const defender = flagship || gameState.fleet[0];
+    setGameState(prev => pushLog(
+      { ...prev, lastAttackTurn: prev.turn },
+      `Turn ${prev.turn}: a British war-fleet (Str ${strength}) attacks Nassau! The ${defender.type}${defender.repairTurnsLeft > 0 ? " (damaged)" : ""} moves to defend.`
+    ));
+    setCombat({
+      mode: "attack",
+      cityName: "Nassau",
+      shipId: defender.id,
+      shipType: defender.type,
+      enemyLabel: "British War-Fleet",
+      enemyStrength: strength,
+      round: 1,
+      playerWins: 0,
+      enemyWins: 0,
+      lastPlayerRoll: null,
+      lastEnemyRoll: null,
+      pendingCoinToss: false,
+      log: [`Nassau is under attack! The ${defender.type} scrambles to repel a British war-fleet of strength ${strength}.`],
+      isOver: false,
+      result: null,
+    });
+  }, [gameState.turn]);
+
+  // ---------- Turn engine ----------
+  const endTurn = () => {
+    setGameState(prev => {
+      let resources = { ...prev.resources };
+      let logLines = [];
+
+      // Rum production (halved during a happiness crisis)
+      const productionMultiplier = isCrisis ? 0.5 : 1;
+      prev.buildings.forEach(b => {
+        if (b.type === "Rum Distillery") resources.rum += Math.round(b.rumOutput * b.level * productionMultiplier);
+      });
+
+      // Tavern upkeep: consumes Rum, produces Happiness — shortfalls hit happiness directly
+      const totalRumDemand = prev.buildings.reduce((sum, b) => sum + (b.rumConsumption || 0) * b.level, 0);
+      const rumConsumed = Math.min(resources.rum, totalRumDemand);
+      resources.rum -= rumConsumed;
+      const supplyRatio = totalRumDemand > 0 ? rumConsumed / totalRumDemand : 1;
+      if (supplyRatio < 1) logLines.push("Rum shortage! Morale suffers.");
+
+      const baseHappiness = prev.buildings.reduce(
+        (sum, b) => (b.type === "Tavern" ? sum + b.happinessOutput * b.level : sum), 0
+      );
+      const happiness = Math.round(baseHappiness * supplyRatio);
+
+      // Repairs tick down
+      const fleet = prev.fleet.map(s => ({ ...s, repairTurnsLeft: Math.max(0, s.repairTurnsLeft - 1) }));
+
+      let next = { ...prev, turn: prev.turn + 1, resources, happiness, fleet };
+      logLines.reverse().forEach(l => { next = pushLog(next, l); });
+      return pushLog(next, `— Turn ${prev.turn + 1} begins —`);
+    });
+  };
+
+  // ---------- Trade (Havana) ----------
+  const runTrade = () => {
+    if (gameState.resources.rum < 10) {
+      alert("You need at least 10 Rum in the hold to fill a trade run.");
+      return;
+    }
+    setGameState(prev => pushLog({
+      ...prev,
+      resources: { ...prev.resources, gold: prev.resources.gold + 100, rum: prev.resources.rum - 10 },
+    }, "Trade run to Havana complete: 10 Rum sold for 100 Gold."));
+  };
+
+  // ---------- Market ----------
+  const buyStores = () => {
+    const price = 90, amount = 30;
+    if (gameState.resources.gold < price) return;
+    setGameState(prev => pushLog({
+      ...prev,
+      resources: { ...prev.resources, gold: prev.resources.gold - price, stores: prev.resources.stores + amount },
+    }, `Bought ${amount} Stores from the market for ${price} Gold.`));
+  };
+
+  // ---------- Shipyard ----------
+  const canAffordShip = (typeName) => {
+    const t = SHIP_TYPES[typeName];
+    return gameState.resources.gold >= t.cost.gold && gameState.resources.stores >= t.cost.stores;
+  };
+
+  const buildShip = (typeName) => {
+    if (hasShipType(typeName) || !canAffordShip(typeName)) return;
+    const t = SHIP_TYPES[typeName];
+    const wasEmpty = gameState.fleet.length === 0;
+    const newShip = {
+      id: `${typeName.toLowerCase()}-${Date.now()}`,
+      type: typeName,
+      strength: t.strength,
+      repairTurnsLeft: 0,
+      cargoTypes: ["stores", "rum"],
+    };
+    setGameState(prev => pushLog({
+      ...prev,
+      resources: {
+        ...prev.resources,
+        gold: prev.resources.gold - t.cost.gold,
+        stores: prev.resources.stores - t.cost.stores,
+      },
+      fleet: [...prev.fleet, newShip],
+    }, `${typeName} launched from Nassau's shipyard.`));
+    if (wasEmpty) setSelectedShipId(newShip.id);
+  };
+
+  // ---------- Buildings ----------
+  const upgradeBuilding = (id) => {
+    const building = gameState.buildings.find(b => b.id === id);
+    const cost = upgradeCost(building);
+    if (gameState.resources.gold < cost) return;
+    setGameState(prev => pushLog({
+      ...prev,
+      resources: { ...prev.resources, gold: prev.resources.gold - cost },
+      buildings: prev.buildings.map(b => b.id === id ? { ...b, level: b.level + 1 } : b),
+    }, `${building.type} upgraded to level ${building.level + 1}.`));
+  };
+
+  // ---------- Combat ----------
+  const launchRaid = (cityKey) => {
+    if (!flagship) {
+      alert("Pick a ship in the Fleet panel first — or build one at the Shipyard.");
+      return;
+    }
+    if (flagship.repairTurnsLeft > 0) {
+      alert(`The ${flagship.type} is still under repair (${flagship.repairTurnsLeft} turn left) and can't sail.`);
+      return;
+    }
+    const city = gameState.cities[cityKey];
+    const wave = KINGSTON_WAVES[city.waveIndex];
+    setCombat({
+      mode: "raid",
+      cityKey,
+      cityName: city.name,
+      shipId: flagship.id,
+      shipType: flagship.type,
+      waveIndex: city.waveIndex,
+      waveTotal: KINGSTON_WAVES.length,
+      enemyLabel: wave.label,
+      enemyStrength: wave.strength,
+      round: 1,
+      playerWins: 0,
+      enemyWins: 0,
+      lastPlayerRoll: null,
+      lastEnemyRoll: null,
+      pendingCoinToss: false,
+      log: [`Wave ${city.waveIndex + 1} of ${KINGSTON_WAVES.length}: a British ${wave.label} intercepts your ${flagship.type}.`],
+      isOver: false,
+      result: null,
+    });
+  };
+
+  const rollRound = () => {
+    const pRoll = rollDie(combatEffectiveStrength);
+    const eRoll = rollDie(combat.enemyStrength);
+
+    setCombat(prev => {
+      let entry = `Round ${prev.round}: you rolled ${pRoll}, the British rolled ${eRoll}.`;
+      if (pRoll > eRoll) {
+        entry += " Round won.";
+        return finalizeRound(prev, { lastPlayerRoll: pRoll, lastEnemyRoll: eRoll, playerWinsDelta: 1, log: entry });
+      }
+      if (eRoll > pRoll) {
+        entry += " Round lost.";
+        return finalizeRound(prev, { lastPlayerRoll: pRoll, lastEnemyRoll: eRoll, enemyWinsDelta: 1, log: entry });
+      }
+      entry += " A dead-even tie — a coin toss will settle it.";
+      return {
+        ...prev,
+        lastPlayerRoll: pRoll,
+        lastEnemyRoll: eRoll,
+        pendingCoinToss: true,
+        log: [entry, ...prev.log],
+      };
+    });
+  };
+
+  const finalizeRound = (prev, { lastPlayerRoll, lastEnemyRoll, playerWinsDelta = 0, enemyWinsDelta = 0, log }) => {
+    const playerWins = prev.playerWins + playerWinsDelta;
+    const enemyWins = prev.enemyWins + enemyWinsDelta;
+    const isOver = playerWins >= 2 || enemyWins >= 2;
+    return {
+      ...prev,
+      lastPlayerRoll, lastEnemyRoll,
+      pendingCoinToss: false,
+      playerWins, enemyWins,
+      round: isOver ? prev.round : prev.round + 1,
+      isOver,
+      result: isOver ? (playerWins >= 2 ? "victory" : "defeat") : null,
+      log: [log, ...prev.log],
+    };
+  };
+
+  const flipCoin = () => {
+    const playerWinsCoin = Math.random() < 0.5;
+    const entry = playerWinsCoin ? "Coin toss: heads! You claim the round." : "Coin toss: tails. The British claim the round.";
+    setCombat(prev => finalizeRound(prev, {
+      lastPlayerRoll: prev.lastPlayerRoll,
+      lastEnemyRoll: prev.lastEnemyRoll,
+      playerWinsDelta: playerWinsCoin ? 1 : 0,
+      enemyWinsDelta: playerWinsCoin ? 0 : 1,
+      log: entry,
+    }));
+  };
+
+  const closeCombat = () => {
+    if (combat.mode === "attack") {
+      if (combat.result === "victory") {
+        setGameState(prev => pushLog(prev, `The ${combat.shipType} repels the British war-fleet! Nassau stands.`));
+      } else {
+        const wasCleanSweep = combat.playerWins === 0 && combat.enemyWins === 2;
+        setGameState(prev => {
+          let fleet, msg;
+          if (wasCleanSweep) {
+            fleet = prev.fleet.filter(s => s.id !== combat.shipId);
+            msg = `Nassau's defense is broken — the ${combat.shipType} is sunk repelling the attack.`;
+          } else {
+            fleet = prev.fleet.map(s => s.id === combat.shipId ? { ...s, repairTurnsLeft: 1 } : s);
+            msg = `The ${combat.shipType} is battered defending Nassau and needs repairs.`;
+          }
+          const wipedOut = fleet.length === 0;
+          let next = { ...prev, fleet, defeat: wipedOut || prev.defeat };
+          next = pushLog(next, msg);
+          if (wipedOut) next = pushLog(next, "With no ships left to defend her, Nassau falls. The rebellion is over.");
+          return next;
+        });
+      }
+      setCombat(null);
+      return;
+    }
+
+    if (combat.result === "victory") {
+      setGameState(prev => {
+        const city = prev.cities[combat.cityKey];
+        const newWaveIndex = city.waveIndex + 1;
+        const fullyCaptured = newWaveIndex >= KINGSTON_WAVES.length;
+        const cities = {
+          ...prev.cities,
+          [combat.cityKey]: { ...city, waveIndex: newWaveIndex, controller: fullyCaptured ? "player" : city.controller },
+        };
+        const reward = KINGSTON_WAVES[combat.waveIndex];
+        return pushLog({
+          ...prev,
+          cities,
+          resources: { ...prev.resources, gold: prev.resources.gold + reward.rewardGold, stores: prev.resources.stores + reward.rewardStores },
+          victory: fullyCaptured ? true : prev.victory,
+        }, fullyCaptured
+          ? "The British Galleon is defeated — Kingston falls! The Caribbean is free."
+          : `Wave ${combat.waveIndex + 1} cleared! The British ${combat.enemyLabel} is driven off — ${reward.rewardGold} Gold and ${reward.rewardStores} Stores secured.`);
+      });
+    } else if (combat.result === "defeat") {
+      const wasCleanSweep = combat.playerWins === 0 && combat.enemyWins === 2;
+      if (wasCleanSweep) {
+        setGameState(prev => pushLog({
+          ...prev,
+          fleet: prev.fleet.filter(s => s.id !== combat.shipId),
+        }, `Routed 2-0 by the British ${combat.enemyLabel} — the ${combat.shipType} is sunk.`));
+      } else {
+        setGameState(prev => pushLog({
+          ...prev,
+          fleet: prev.fleet.map(s => s.id === combat.shipId ? { ...s, repairTurnsLeft: 1 } : s),
+        }, `Defeat against the British ${combat.enemyLabel}. The ${combat.shipType} limps home for repairs (1 turn).`));
+      }
+    }
+    setCombat(null);
+  };
+
+  // ---------- Save / Load (retro JSON standard) ----------
+  const exportSave = () => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(gameState, null, 2));
+    const a = document.createElement('a');
+    a.setAttribute("href", dataStr);
+    a.setAttribute("download", `pirate_rebellion_turn_${gameState.turn}.json`);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+  const importSave = (event) => {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const parsed = JSON.parse(e.target.result);
+        if (parsed.resources && parsed.cities && parsed.fleet) {
+          setGameState(parsed);
+          setCombat(null);
+          setSelectedShipId(parsed.fleet[0] ? parsed.fleet[0].id : null);
+        } else {
+          alert("That file doesn't look like a Pirate Rebellion save.");
+        }
+      } catch (err) {
+        alert("Couldn't read that save file.");
+      }
+    };
+    reader.readAsText(file);
+    event.target.value = "";
+  };
+
+  const cityOrder = ["nassau", "havana", "kingston"];
+
+  return (
+    <div className="min-h-screen p-4 md:p-6 max-w-6xl mx-auto">
+
+      <header className="panel p-4 md:p-5 flex flex-wrap items-center justify-between gap-4 mb-5">
+        <div>
+          <h1 className="headline text-3xl md:text-4xl" style={{color:'var(--brass-bright)'}}>Pirate Rebellion</h1>
+          <p className="text-sm opacity-75 mt-1">Turn {gameState.turn} · Driving the British from the Caribbean</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={exportSave} className="btn-ghost px-4 py-2 text-sm">Save game</button>
+          <label className="btn-ghost px-4 py-2 text-sm cursor-pointer">
+            Load game
+            <input ref={fileInputRef} type="file" accept=".json" onChange={importSave} className="hidden" />
+          </label>
+        </div>
+      </header>
+
+      {gameState.victory && (
+        <div className="panel p-5 mb-5 text-center" style={{borderColor:'var(--brass-bright)'}}>
+          <div className="headline text-2xl" style={{color:'var(--brass-bright)'}}>⚑ The Caribbean is free.</div>
+          <p className="text-sm opacity-80 mt-1">All three British fleets at Kingston have been broken — total domination achieved.</p>
+        </div>
+      )}
+
+      {gameState.defeat && (
+        <div className="panel p-5 mb-5 text-center" style={{borderColor:'var(--rust)'}}>
+          <div className="headline text-2xl" style={{color:'#e0715a'}}>☠ Nassau has fallen.</div>
+          <p className="text-sm opacity-80 mt-1">The British broke your last ship. The rebellion ends here — load an earlier save to try again.</p>
+        </div>
+      )}
+
+      {/* Resource ribbon */}
+      <div className="grid grid-cols-3 gap-3 mb-6">
+        {[
+          ["Gold", "🪙", gameState.resources.gold],
+          ["Rum", "🍹", gameState.resources.rum],
+          ["Stores", "📦", gameState.resources.stores],
+        ].map(([label, icon, val]) => (
+          <div key={label} className="stat-chip p-3 text-center">
+            <div className="text-[11px] uppercase tracking-wide opacity-60">{label}</div>
+            <div className="text-lg font-bold">{icon} {val}</div>
+          </div>
+        ))}
+      </div>
+
+      <div
+        className="stat-chip p-3 mb-6 flex items-center justify-between"
+        title={`Happiness ${gameState.happiness} / threshold ${threshold} (threshold rises with fleet size)`}
+      >
+        <span className="text-sm">⚓ Morale</span>
+        <span className="font-bold" style={{color: isLowMorale ? '#e0715a' : 'var(--emerald)'}}>
+          {Math.round(moraleRatio * 100)}%
+          {isLowMorale && <span className="text-xs font-normal ml-2 opacity-80">−1 combat strength{isCrisis ? ", Rum production halved" : ""}</span>}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
+
+        {/* Nassau infrastructure */}
+        <section className="panel p-4">
+          <h2 className="headline text-xl mb-3" style={{color:'var(--brass-bright)'}}>Nassau</h2>
+          <div className="space-y-3">
+            {gameState.buildings.map(b => {
+              const cost = upgradeCost(b);
+              return (
+                <div key={b.id} className="stat-chip p-3">
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="font-semibold text-sm">{b.type} · Lv.{b.level}</span>
+                    <button
+                      onClick={() => upgradeBuilding(b.id)}
+                      disabled={gameState.resources.gold < cost || gameState.defeat}
+                      className="btn-brass text-xs px-2 py-1"
+                    >
+                      Upgrade ({cost}g)
+                    </button>
+                  </div>
+                  <p className="text-xs opacity-70">
+                    {b.type === "Tavern"
+                      ? `Uses ${b.rumConsumption * b.level} Rum/turn → +${b.happinessOutput * b.level} happiness`
+                      : `Produces +${b.rumOutput * b.level} Rum/turn`}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+          <button onClick={endTurn} disabled={gameState.defeat} className="btn-brass w-full mt-4 py-3 text-base">
+            End turn
+          </button>
+        </section>
+
+        {/* Fleet, Shipyard & Market */}
+        <section className="panel p-4">
+          <h2 className="headline text-xl mb-3" style={{color:'var(--brass-bright)'}}>Fleet</h2>
+          <p className="text-xs opacity-70 mb-2">Flagship for your next raid:</p>
+          <div className="space-y-2 mb-4">
+            {gameState.fleet.length === 0 && (
+              <p className="text-xs opacity-60 italic stat-chip p-2">No ships afloat — build one below.</p>
+            )}
+            {gameState.fleet.map(ship => (
+              <label key={ship.id} className="stat-chip p-2 flex items-center gap-2 cursor-pointer text-sm">
+                <input
+                  type="radio"
+                  name="flagship"
+                  checked={selectedShipId === ship.id}
+                  onChange={() => setSelectedShipId(ship.id)}
+                />
+                <span className="flex-1">{ship.type}</span>
+                <span className="opacity-70 text-xs" style={{color: ship.repairTurnsLeft > 0 ? '#e0715a' : undefined}}>
+                  {ship.repairTurnsLeft > 0 ? `Repairing (${ship.repairTurnsLeft})` : `Str ${ship.strength}`}
+                </span>
+              </label>
+            ))}
+          </div>
+
+          <h3 className="text-sm font-semibold opacity-70 mb-2">Shipyard</h3>
+          <p className="text-[11px] opacity-60 mb-2">One hull of each class at a time.</p>
+          <div className="space-y-2 mb-4">
+            {Object.entries(SHIP_TYPES).map(([name, t]) => {
+              const owned = hasShipType(name);
+              return (
+                <div key={name} className="stat-chip p-3">
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="font-semibold text-sm">{name}</span>
+                    <button
+                      onClick={() => buildShip(name)}
+                      disabled={owned || !canAffordShip(name) || gameState.defeat}
+                      className="btn-brass text-xs px-2 py-1"
+                    >
+                      {owned ? "Owned" : "Build"}
+                    </button>
+                  </div>
+                  <p className="text-[11px] opacity-70">Str {t.strength} · {t.cost.gold}g, {t.cost.stores} stores</p>
+                </div>
+              );
+            })}
+          </div>
+
+          <h3 className="text-sm font-semibold opacity-70 mb-2">Market</h3>
+          <button
+            onClick={buyStores}
+            disabled={gameState.resources.gold < 90 || gameState.defeat}
+            className="btn-ghost text-xs py-2 px-3 w-full text-left"
+          >
+            📦 Buy 30 Stores <span className="opacity-70">— 90g</span>
+          </button>
+        </section>
+
+        {/* Map */}
+        <section className="panel p-4 lg:col-span-2">
+          <h2 className="headline text-xl mb-3" style={{color:'var(--brass-bright)'}}>The Caribbean</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+            {cityOrder.map(key => {
+              const city = gameState.cities[key];
+              const badgeColor = city.type === 'home' ? 'text-sky-300' : city.type === 'trade' ? 'text-emerald-300' : 'text-red-300';
+              const captured = city.controller === 'player';
+              return (
+                <div key={key} className="stat-chip p-4 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-bold">{city.name}</span>
+                      <span className={`text-[10px] uppercase font-bold ${badgeColor}`}>{city.type}</span>
+                    </div>
+                    <p className="text-xs opacity-70 mb-3 capitalize">Held by: {city.controller}</p>
+                    {city.type === 'military' && !captured && (
+                      <div className="mb-3">
+                        <p className="text-xs opacity-70 mb-1">
+                          Wave {city.waveIndex + 1} of {KINGSTON_WAVES.length}: British {KINGSTON_WAVES[city.waveIndex].label} (Str {KINGSTON_WAVES[city.waveIndex].strength})
+                        </p>
+                        <div className="flex gap-1">
+                          {KINGSTON_WAVES.map((w, i) => (
+                            <span key={i} className="wave-dot" style={{background: i < city.waveIndex ? 'var(--emerald)' : 'transparent'}} title={w.label} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  {captured ? (
+                    <span className="text-xs font-bold" style={{color:'var(--emerald)'}}>✓ Under your flag</span>
+                  ) : city.type === 'trade' ? (
+                    <button onClick={runTrade} disabled={gameState.defeat} className="btn-brass text-xs py-2">Trade run (−10 rum → +100g)</button>
+                  ) : (
+                    <button
+                      onClick={() => launchRaid(key)}
+                      disabled={!flagship || gameState.defeat}
+                      className="btn-rust text-xs py-2"
+                    >
+                      Launch raid ⚔️
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <h3 className="text-sm font-semibold opacity-70 mb-2">Ship's log</h3>
+          <div className="scanline-log p-3 h-40 overflow-y-auto space-y-1">
+            {gameState.log.map((l, i) => <div key={i} className="opacity-85">{l}</div>)}
+          </div>
+        </section>
+      </div>
+
+      {/* Combat modal */}
+      {combat && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+          <div className="panel p-6 w-full max-w-xl" style={{background:'var(--sea)', borderColor:'var(--rust)'}}>
+            <h3 className="headline text-2xl text-center mb-1" style={{color: combat.mode === 'attack' ? '#e0715a' : 'var(--brass-bright)'}}>
+              {combat.mode === 'attack'
+                ? "British Attack on Nassau!"
+                : `Wave ${combat.waveIndex + 1} of ${combat.waveTotal} — ${combat.cityName}`}
+            </h3>
+            <p className="text-center text-xs opacity-70 mb-5">
+              Best of three rounds — a tie is settled by coin toss. A 2-0 sweep sinks the losing ship.
+              {combat.mode === 'attack' && " Damaged ships must still defend, at reduced strength."}
+            </p>
+
+            <div className="grid grid-cols-3 items-center text-center mb-4">
+              <div>
+                <div className="text-3xl mb-1">🏴‍☠️</div>
+                <div className="text-xs opacity-70">{combat.shipType} · Tier {combatEffectiveStrength}</div>
+                <div className="font-bold" style={{color:'var(--emerald)'}}>{combat.playerWins} rounds</div>
+              </div>
+              <div>
+                <div className="flex justify-center gap-3 mb-2">
+                  <div className="die">{combat.lastPlayerRoll ?? "?"}</div>
+                  <div className="die">{combat.lastEnemyRoll ?? "?"}</div>
+                </div>
+                <div className="flex justify-center gap-1">
+                  {[1, 2, 3].map(n => {
+                    let bg = 'transparent';
+                    if (n <= combat.playerWins) bg = 'var(--emerald)';
+                    else if (n <= combat.playerWins + combat.enemyWins && n > combat.playerWins) bg = 'var(--rust)';
+                    return <span key={n} className="round-dot" style={{background:bg}} />;
+                  })}
+                </div>
+              </div>
+              <div>
+                <div className="text-3xl mb-1">🇬🇧</div>
+                <div className="text-xs opacity-70">{combat.enemyLabel} · Tier {combat.enemyStrength}</div>
+                <div className="font-bold text-red-300">{combat.enemyWins} rounds</div>
+              </div>
+            </div>
+
+            <div className="scanline-log p-3 h-28 overflow-y-auto space-y-1 mb-4">
+              {combat.log.map((l, i) => <div key={i} className="opacity-85">{l}</div>)}
+            </div>
+
+            <div className="flex justify-center gap-3">
+              {combat.isOver ? (
+                <button onClick={closeCombat} className="btn-brass px-6 py-3">
+                  {combat.mode === 'attack'
+                    ? (combat.result === "victory" ? "Nassau holds!" : "Continue")
+                    : (combat.result === "victory" ? "Claim victory" : "Withdraw fleet")}
+                </button>
+              ) : combat.pendingCoinToss ? (
+                <button onClick={flipCoin} className="btn-rust px-6 py-3">🪙 Flip coin</button>
+              ) : (
+                <button onClick={rollRound} className="btn-rust px-6 py-3">🎲 Roll dice</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<GameApp />);
+</script>
+</body>
+</html>
